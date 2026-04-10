@@ -3,15 +3,15 @@
 
 # Summary
 
+Temporal is the open source runtime for managing distributed application state at scale.
 
 # Components
 
 ![Components](imgs/Screenshot%20From%202026-04-08%2014-40-34.png)
 
-- Workflow — a lógica de negócio principal. Pode envolver transferências bancárias, processamento de pedidos, deploy de infraestrutura, treinamento de modelos de IA, ou qualquer outra coisa. O estado completo do Workflow é durável e fault-tolerant por padrão, podendo ser recuperado, reexecutado (replay) ou pausado de qualquer ponto arbitrário. temporal
-- Activities — são as partes que interagem com o mundo real: APIs que falham, usuários que demoram, dispositivos instáveis. Activities podem rodar pelo tempo necessário (com heartbeat), ser retentadas automaticamente para sempre (como policy), e ser roteadas para serviços ou processos específicos. temporal
-- Workers — fazem polling de uma Task Queue e recebem tarefas para executar. Reportam o resultado de volta ao Service, que responde adicionando mais tarefas à fila, repetindo até o fim da execução. temporal
-- Temporal Service — mantém um histórico detalhado de cada execução. Se o app crasha, outro Worker assume automaticamente fazendo replay desse histórico para recuperar o estado anterior ao crash, e continua de onde parou. temporal
+- Workflow — a lógica de negócio principal. Pode envolver transferências bancárias, processamento de pedidos, deploy de infraestrutura, treinamento de modelos de IA, ou qualquer outra coisa. O estado completo do Workflow é durável e fault-tolerant por padrão, podendo ser recuperado, reexecutado (replay) ou pausado de qualquer ponto arbitrário. - Activities — são as partes que interagem com o mundo real: APIs que falham, usuários que demoram, dispositivos instáveis. Activities podem rodar pelo tempo necessário (com heartbeat), ser retentadas automaticamente para sempre (como policy), e ser roteadas para serviços ou processos específicos. 
+- Workers — fazem polling de uma Task Queue e recebem tarefas para executar. Reportam o resultado de volta ao Service, que responde adicionando mais tarefas à fila, repetindo até o fim da execução. 
+- Temporal Service — mantém um histórico detalhado de cada execução. Se o app crasha, outro Worker assume automaticamente fazendo replay desse histórico para recuperar o estado anterior ao crash, e continua de onde parou. 
 
 # Why to use
 
