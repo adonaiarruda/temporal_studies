@@ -66,7 +66,7 @@ pip install -r requirements.txt
 ### Passo 1 — Criar o guardrail na AWS
 
 ```bash
-python create_guardrails.py
+
 ```
 
 Saída esperada:
