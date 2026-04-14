@@ -2,6 +2,7 @@ import json
 import os
 import boto3
 from botocore.exceptions import ClientError
+from langsmith import traceable
 
 
 def get_bedrock_client():
@@ -11,6 +12,7 @@ def get_bedrock_client():
     )
 
 
+@traceable(run_type="llm", name="bedrock-invoke")
 def invoke_model(prompt: str) -> str:
     client = get_bedrock_client()
     model_id = os.environ.get(
