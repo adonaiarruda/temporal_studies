@@ -3,8 +3,17 @@ import json
 import os
 from botocore.exceptions import ClientError
 
+# Load .env from prefi-lite only if no credentials are already configured.
+# STS tokens in .env expire; prefer AWS_PROFILE or ~/.aws/credentials when set.
+_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'prefi-lite', '.env')
+if not os.environ.get('AWS_ACCESS_KEY_ID') and os.path.exists(_env_path):
+    from dotenv import load_dotenv
+    load_dotenv(_env_path, override=False)
+
+_profile = os.environ.get('AWS_PROFILE')
+_session = boto3.Session(profile_name=_profile) if _profile else boto3.Session()
 # bedrock-runtime: apply_guardrail, converse
-runtime = boto3.client(service_name='bedrock-runtime', region_name='us-east-1')
+runtime = _session.client(service_name='bedrock-runtime', region_name=os.environ.get('AWS_DEFAULT_REGION', 'us-east-1'))
 
 MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0"
 
@@ -77,7 +86,7 @@ def _exibir_resultado_apply(texto_original: str, response: dict) -> None:
 
     # Texto resultante: redacionado (PII mascarado) ou mensagem de bloqueio
     outputs = response.get('outputs', [])
-    texto_resultante = outputs[0].get('text', {}).get('text', '') if outputs else ''
+    texto_resultante = outputs[0].get('text', '') if outputs else ''
 
     if bloqueios:
         print(f"  BLOQUEADO")
@@ -145,6 +154,8 @@ def testar_redacao_direta(titulo: str, texto: str, source: str = 'INPUT') -> dic
             content=[{'text': {'text': texto}}],
         )
         _exibir_resultado_apply(texto, response)
+        # DEBUG: descomente para ver a resposta bruta completa
+        # import pprint; pprint.pprint(response)
         return response
     except ClientError as e:
         print(f"  Erro: {e}")
@@ -166,7 +177,9 @@ def testar_com_modelo(titulo: str, prompt: str) -> None:
     """
     _cabecalho(f"{titulo}  [MODELO]", prompt)
     try:
-        response = runtime.converse(
+        # Usa o runtime.converse para testar o guardrail em um cenário real de uso com modelo.
+        # No projeto real será usado assim.
+        response = runtime.converse(             
             modelId=MODEL_ID,
             messages=[{"role": "user", "content": [{"text": prompt}]}],
             guardrailConfig={
@@ -192,6 +205,11 @@ def testar_com_modelo(titulo: str, prompt: str) -> None:
                     print(r)
 
             print(f"  Resposta do modelo: {texto_resposta[:300]}{'...' if len(texto_resposta) > 300 else ''}")
+
+            if not redacoes:
+                guardrail_trace = response.get('trace', {}).get('guardrail', {})
+                assessments = guardrail_trace.get('inputAssessment', {})
+                print(f"  [DEBUG] inputAssessment: {json.dumps(assessments, indent=2, default=str)}")
 
     except ClientError as e:
         print(f"  Erro: {e}")
@@ -226,7 +244,7 @@ if __name__ == '__main__':
 
     testar_redacao_direta(
         titulo="CPF brasileiro (regex customizado)",
-        texto="Meu CPF e 123.456.789-00 e preciso de ajuda com minha conta.",
+        texto="Meu CPF e 103.805.706-02 e preciso de ajuda com minha conta.",
     )
 
     testar_redacao_direta(
