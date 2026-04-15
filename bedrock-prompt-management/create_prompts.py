@@ -23,7 +23,7 @@ client = _session.client(
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'prompt_config.json')
 
 # Modelo padrão para inferência nos prompts
-MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0"
+MODEL_ID = "amazon.nova-micro-v1:0"
 
 
 # ── Definições canônicas dos prompts ─────────────────────────────────────────

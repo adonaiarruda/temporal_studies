@@ -64,7 +64,7 @@ converse(
 
 - Python 3.11+
 - Conta AWS com Bedrock habilitado na região `us-east-1`
-- Modelo `anthropic.claude-3-haiku-20240307-v1:0` ativo
+- Modelo `amazon.nova-micro-v1:0` ativo (ou outro com suporte a `cachePoint`)
 
 ### Permissões IAM necessárias
 
@@ -135,12 +135,15 @@ python test_prompts.py
 
 ## O que os testes demonstram
 
-| Bloco | O que faz |
-|-------|-----------|
-| 1 | Lista todos os prompts registrados no Bedrock + inspeciona templates |
-| 2 | **Abordagem A**: busca template → render local → converse (fluxo detalhado) |
-| 3 | **Abordagem B**: converse com ARN + promptVariables (fluxo nativo) |
-| 4 | Pipeline completo: emoção → cenário usando só ARNs (sem template no código) |
+| Bloco | Prompt(s) | API Bedrock | O que faz | Conceito central |
+|-------|-----------|-------------|-----------|------------------|
+| 1 | ambos | `bedrock-agent` | Lista todos os prompts registrados + exibe template, variáveis e metadados de cada um | Auditoria / inspeção |
+| 2 | `emotion_detection` + `scenario_generation` | `Converse` | **Abordagem A**: `get_prompt` → render local de `{{variavel}}` → `converse` com texto pronto | Controle total do template no código |
+| 3 | `emotion_detection` + `scenario_generation` | `Converse` | **Abordagem B**: `converse(modelId=ARN, promptVariables={...})` — Bedrock faz o render internamente | Uma chamada de API, modelo definido no prompt |
+| 4 | `emotion_detection` | `Converse` | **Prompt Caching**: instruções estáticas vão no `system[]` com `cachePoint`; só a mensagem do usuário varia. Exibe `cacheWriteInputTokens` (1ª chamada) e `cacheReadInputTokens` (chamadas seguintes) | Cache write vs. cache read |
+| 5 | `emotion_detection` → `scenario_generation` | `Converse` | **Pipeline completo** via Abordagem B: detecta emoção com ARN do `emotion_detection`, usa o estado retornado para gerar o cenário com ARN do `scenario_generation` | Composição de prompts sem template no código |
+| 6a | `emotion_detection` | `ConverseStream` | **TTFT sem cache**: busca o template do Bedrock, envia o prompt completo em `messages[]` via streaming. Imprime tokens em tempo real e mede TTFT (tempo até o 1º token) e latência total | Linha de base de latência sem cache |
+| 6b | `emotion_detection` | `ConverseStream` | **TTFT com cache**: busca o template do Bedrock, separa a parte estática em `system[]` com `cachePoint` e envia só a mensagem do usuário em `messages[]` via streaming. Exibe `cacheWriteInputTokens` / `cacheReadInputTokens` e mede o impacto do cache no TTFT | Cache + streaming combinados |
 
 ---
 

@@ -30,7 +30,7 @@ runtime = _session.client(
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'prompt_config.json')
 
 # Modelo a usar na Abordagem A (quando não usamos o ARN do prompt)
-FALLBACK_MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0"
+FALLBACK_MODEL_ID = "amazon.nova-micro-v1:0"
 
 
 def carregar_config() -> dict:
@@ -175,11 +175,12 @@ def _renderizar(template: str, variaveis: dict[str, str]) -> str:
     return resultado
 
 
-def _converse(texto_renderizado: str) -> str:
+def _converse(texto_renderizado: str) -> tuple[str, float]:
     """
     Chama bedrock-runtime.converse com o texto renderizado como mensagem do usuário.
-    Retorna o texto da resposta do modelo.
+    Retorna (texto_da_resposta, latencia_ms).
     """
+    inicio = time.perf_counter()
     response = runtime.converse(
         modelId=FALLBACK_MODEL_ID,
         messages=[{
@@ -187,15 +188,17 @@ def _converse(texto_renderizado: str) -> str:
             'content': [{'text': texto_renderizado}],
         }],
     )
+    latencia_ms = (time.perf_counter() - inicio) * 1000
     content = response.get('output', {}).get('message', {}).get('content', [])
-    return content[0].get('text', '[sem resposta]') if content else '[sem resposta]'
+    texto = content[0].get('text', '[sem resposta]') if content else '[sem resposta]'
+    return texto, latencia_ms
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers de Prompt Caching
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _converse_com_cache(instrucoes_estaticas: str, mensagem_usuario: str) -> tuple[str, dict]:
+def _converse_com_cache(instrucoes_estaticas: str, mensagem_usuario: str) -> tuple[str, dict, float]:
     """
     Invoca o modelo separando a parte estática (system) da dinâmica (messages),
     com um cachePoint ao final do bloco system.
@@ -206,8 +209,9 @@ def _converse_com_cache(instrucoes_estaticas: str, mensagem_usuario: str) -> tup
     - Nas chamadas seguintes (dentro do TTL de 5 min), o modelo recebe os tokens
       do system direto do cache — sem reprocessamento.
 
-    Retorna (texto_da_resposta, uso_de_tokens).
+    Retorna (texto_da_resposta, uso_de_tokens, latencia_ms).
     """
+    inicio = time.perf_counter()
     response = runtime.converse(
         modelId=FALLBACK_MODEL_ID,
         system=[
@@ -222,11 +226,12 @@ def _converse_com_cache(instrucoes_estaticas: str, mensagem_usuario: str) -> tup
             'content': [{'text': mensagem_usuario}],
         }],
     )
+    latencia_ms = (time.perf_counter() - inicio) * 1000
 
     content = response.get('output', {}).get('message', {}).get('content', [])
     texto = content[0].get('text', '[sem resposta]') if content else '[sem resposta]'
     uso = response.get('usage', {})
-    return texto, uso
+    return texto, uso, latencia_ms
 
 
 def _exibir_uso_cache(uso: dict, chamada: str) -> None:
@@ -239,7 +244,7 @@ def _exibir_uso_cache(uso: dict, chamada: str) -> None:
     - cacheReadInputTokens : tokens lidos do cache (chamadas seguintes, ~90% mais barato)
     - outputTokens         : tokens gerados na resposta
 
-    Requisito de tamanho mínimo (Claude 3 Haiku): 1.024 tokens no bloco system.
+    Requisito de tamanho mínimo (Claude 3.5 Haiku): 1.024 tokens no bloco system.
     Se o bloco for menor, o Bedrock não cacheia e os campos de cache ficam em 0.
     """
     write  = uso.get('cacheWriteInputTokens', 0)
@@ -278,8 +283,9 @@ def testar_abordagem_a_emocao(mensagem: str) -> dict | None:
         renderizado = _renderizar(template, {'mensagem': mensagem})
         print(f"  Template renderizado localmente.")
 
-        resposta = _converse(renderizado)
+        resposta, latencia_ms = _converse(renderizado)
         _exibir_resposta(resposta, "Resposta JSON")
+        print(f"  Latência: {latencia_ms:.0f} ms")
 
         return json.loads(resposta)
 
@@ -314,8 +320,9 @@ def testar_abordagem_a_cenario(mensagem: str, estado: str, contexto_anterior: st
         })
         print(f"  Template renderizado localmente.")
 
-        resposta = _converse(renderizado)
+        resposta, latencia_ms = _converse(renderizado)
         _exibir_resposta(resposta, "Cenário gerado")
+        print(f"  Latência: {latencia_ms:.0f} ms")
 
     except ClientError as e:
         print(f"  Erro AWS: {e}")
@@ -360,16 +367,19 @@ def testar_abordagem_b_emocao(mensagem: str) -> dict | None:
     print(f"  Prompt ARN: {versioned_arn}")
 
     try:
+        inicio = time.perf_counter()
         response = runtime.converse(
             modelId=versioned_arn,
             promptVariables={
                 'mensagem': {'text': mensagem},
             },
         )
+        latencia_ms = (time.perf_counter() - inicio) * 1000
 
         content = response.get('output', {}).get('message', {}).get('content', [])
         resposta = content[0].get('text', '[sem resposta]') if content else '[sem resposta]'
         _exibir_resposta(resposta, "Resposta JSON")
+        print(f"  Latência: {latencia_ms:.0f} ms")
 
         return json.loads(resposta)
 
@@ -401,6 +411,7 @@ def testar_abordagem_b_cenario(mensagem: str, estado: str, contexto_anterior: st
     print(f"  Prompt ARN: {versioned_arn}")
 
     try:
+        inicio = time.perf_counter()
         response = runtime.converse(
             modelId=versioned_arn,
             promptVariables={
@@ -409,10 +420,12 @@ def testar_abordagem_b_cenario(mensagem: str, estado: str, contexto_anterior: st
                 'contexto_anterior': {'text': contexto_anterior},
             },
         )
+        latencia_ms = (time.perf_counter() - inicio) * 1000
 
         content = response.get('output', {}).get('message', {}).get('content', [])
         resposta = content[0].get('text', '[sem resposta]') if content else '[sem resposta]'
         _exibir_resposta(resposta, "Cenário gerado")
+        print(f"  Latência: {latencia_ms:.0f} ms")
 
     except ClientError as e:
         code = e.response.get('Error', {}).get('Code', '')
@@ -476,8 +489,9 @@ def testar_cache_emocao(mensagens: list[str]) -> None:
     for i, mensagem in enumerate(mensagens, start=1):
         print(f"  Chamada {i}: {mensagem[:70]}{'...' if len(mensagem) > 70 else ''}")
         try:
-            resposta, uso = _converse_com_cache(instrucoes_estaticas, mensagem)
+            resposta, uso, latencia_ms = _converse_com_cache(instrucoes_estaticas, mensagem)
             _exibir_uso_cache(uso, f"chamada {i}")
+            print(f"    Latência          : {latencia_ms:.0f} ms")
             # Exibe só o estado detectado para manter a saída compacta
             try:
                 estado = json.loads(resposta).get('estado', '?')
@@ -510,6 +524,7 @@ def _stream_com_ttft(
     texto_renderizado: str,
     system: str | None = None,
     model_id: str = FALLBACK_MODEL_ID,
+    use_cache: bool = False,
 ) -> tuple[str, float, float, dict]:
     """
     Invoca o modelo via converse_stream e imprime os chunks em tempo real.
@@ -519,20 +534,24 @@ def _stream_com_ttft(
     texto_renderizado : prompt já com variáveis substituídas (vai em messages[])
     system            : bloco de instruções estáticas opcionais (vai em system[])
     model_id          : modelo Bedrock a invocar
+    use_cache         : se True e system fornecido, adiciona cachePoint ao system
 
     Retorna
     -------
     (texto_completo, ttft_ms, latencia_total_ms, uso)
       ttft_ms           : tempo até o primeiro token (ms)
       latencia_total_ms : latência total reportada pelo Bedrock em metrics.latencyMs
-      uso               : dict com inputTokens, outputTokens, etc.
+      uso               : dict com inputTokens, outputTokens e campos de cache
     """
     kwargs: dict = {
         'modelId': model_id,
         'messages': [{'role': 'user', 'content': [{'text': texto_renderizado}]}],
     }
     if system:
-        kwargs['system'] = [{'text': system}]
+        system_block = [{'text': system}]
+        if use_cache:
+            system_block.append({'cachePoint': {'type': 'default'}})
+        kwargs['system'] = system_block
 
     inicio = time.perf_counter()
     ttft_ms: float | None = None
@@ -562,7 +581,7 @@ def _stream_com_ttft(
     return ''.join(chunks), ttft_ms or 0.0, latencia_total_ms, uso
 
 
-def testar_ttft_mensagens(mensagens: list[str]) -> None:
+def testar_ttft_mensagens(mensagens: list[str]) -> list[dict]:
     """
     Mede TTFT de cada mensagem usando o template emotion_detection via streaming.
 
@@ -571,18 +590,18 @@ def testar_ttft_mensagens(mensagens: list[str]) -> None:
       2. Chama converse_stream e imprime os tokens conforme chegam
       3. Exibe TTFT, latência total e uso de tokens
     """
-    _cabecalho("BLOCO 6 — TTFT via converse_stream  |  emotion_detection")
+    _cabecalho("BLOCO 6a — TTFT sem cache via converse_stream  |  emotion_detection")
 
     prompt_info = config.get('emotion_detection')
     if not prompt_info:
         print("  AVISO: emotion_detection não encontrado em prompt_config.json")
-        return
+        return []
 
     try:
         template, _ = _buscar_template(prompt_info['prompt_id'], prompt_info['version'])
     except ClientError as e:
         print(f"  Erro ao buscar template: {e}")
-        return
+        return []
 
     print(f"  Template carregado ({len(template)} chars). Iniciando streaming...\n")
 
@@ -617,7 +636,6 @@ def testar_ttft_mensagens(mensagens: list[str]) -> None:
         except ValueError as e:
             print(f"  Erro de render: {e}\n")
 
-    # Resumo comparativo
     if resultados:
         print(f"  {'─' * 56}")
         print(f"  {'Mensagem':<36} {'TTFT (ms)':>10} {'Total (ms)':>10}")
@@ -625,6 +643,98 @@ def testar_ttft_mensagens(mensagens: list[str]) -> None:
         for r in resultados:
             print(f"  {r['mensagem']:<36} {r['ttft_ms']:>10.0f} {r['total_ms']:>10.0f}")
         print(f"  {'─' * 56}")
+
+    return resultados
+
+def testar_ttft_com_cache(mensagens: list[str]) -> list[dict]:
+    """
+    Mede TTFT de cada mensagem usando prompt caching via converse_stream.
+
+    Instruções estáticas do template vão em system[] com cachePoint.
+    Só a mensagem do usuário vai em messages[] (muda por chamada).
+
+    - 1ª chamada: grava no cache (cacheWriteInputTokens > 0)
+    - Chamadas seguintes (TTL 5 min): lê do cache (cacheReadInputTokens > 0)
+    """
+    _cabecalho("BLOCO 6b — TTFT com cache via converse_stream  |  emotion_detection")
+
+    prompt_info = config.get('emotion_detection')
+    if not prompt_info:
+        print("  AVISO: emotion_detection não encontrado em prompt_config.json")
+        return []
+
+    try:
+        template, _ = _buscar_template(prompt_info['prompt_id'], prompt_info['version'])
+    except ClientError as e:
+        print(f"  Erro ao buscar template: {e}")
+        return []
+
+    instrucoes_estaticas = template.split('{{mensagem}}')[0].rstrip()
+    print(f"  Instrução estática: {len(instrucoes_estaticas)} chars → system[] + cachePoint")
+    print(f"  Mensagem do usuário                              → messages[]\n")
+
+    resultados: list[dict] = []
+
+    for i, mensagem in enumerate(mensagens, start=1):
+        print(f"  ── Mensagem {i}: {mensagem[:70]}{'...' if len(mensagem) > 70 else ''}")
+        try:
+            _, ttft_ms, total_ms, uso = _stream_com_ttft(
+                mensagem,
+                system=instrucoes_estaticas,
+                use_cache=True,
+            )
+            write = uso.get('cacheWriteInputTokens', 0)
+            read  = uso.get('cacheReadInputTokens', 0)
+            inp   = uso.get('inputTokens', 0)
+            out   = uso.get('outputTokens', 0)
+            cache_status = "WRITE (1ª vez)" if write > 0 else "READ (hit!)" if read > 0 else "sem cache (tokens insuf.)"
+            print(f"  TTFT: {ttft_ms:.0f} ms  |  Total: {total_ms:.0f} ms  "
+                  f"|  tokens in/out: {inp}/{out}  |  cache: {cache_status}\n")
+            resultados.append({'mensagem': mensagem[:50], 'ttft_ms': ttft_ms, 'total_ms': total_ms, 'cache': cache_status})
+        except (ClientError, ValueError) as e:
+            print(f"  Erro: {e}\n")
+
+    if resultados:
+        print(f"  {'─' * 70}")
+        print(f"  {'Mensagem':<36} {'TTFT (ms)':>10} {'Total (ms)':>10}  Cache")
+        print(f"  {'─' * 70}")
+        for r in resultados:
+            print(f"  {r['mensagem']:<36} {r['ttft_ms']:>10.0f} {r['total_ms']:>10.0f}  {r['cache']}")
+        print(f"  {'─' * 70}")
+
+    return resultados
+
+
+def _tabela_comparativa_6a_6b(res_6a: list[dict], res_6b: list[dict]) -> None:
+    """
+    Exibe tabela comparando TTFT e latência total dos Blocos 6a (sem cache)
+    e 6b (com cache) para as mesmas mensagens.
+    """
+    if not res_6a or not res_6b:
+        return
+
+    _cabecalho("COMPARATIVO 6a vs 6b  |  sem cache  vs  com cache")
+
+    W = 36
+    print(f"  {'Mensagem':<{W}} {'TTFT 6a':>8} {'Tot 6a':>8} {'TTFT 6b':>8} {'Tot 6b':>8}  {'Δ TTFT':>8}  Cache 6b")
+    print(f"  {'─' * (W + 60)}")
+
+    for a, b in zip(res_6a, res_6b):
+        delta = b['ttft_ms'] - a['ttft_ms']
+        delta_str = f"{delta:+.0f}"
+        print(
+            f"  {a['mensagem']:<{W}}"
+            f" {a['ttft_ms']:>8.0f}"
+            f" {a['total_ms']:>8.0f}"
+            f" {b['ttft_ms']:>8.0f}"
+            f" {b['total_ms']:>8.0f}"
+            f"  {delta_str:>8}"
+            f"  {b.get('cache', '?')}"
+        )
+
+    print(f"  {'─' * (W + 60)}")
+    print(f"  Δ TTFT = 6b − 6a (ms). Negativo = cache reduziu latência.")
+
 
 def testar_pipeline_completo(mensagem: str) -> None:
     """
@@ -713,7 +823,7 @@ if __name__ == '__main__':
     # ── Bloco 4: Prompt Caching ───────────────────────────────────────────────
     print("\n\n### BLOCO 4: Prompt Caching — system cachePoint ###")
     print("    (instruções estáticas cacheadas; só a mensagem do usuário é nova)")
-    print("    Requisito: >= 1.024 tokens no bloco system para o Claude 3 Haiku cachear.")
+    print("    Requisito: >= 1.024 tokens no bloco system para o Claude 3.5 Haiku cachear.")
     print("    Se cacheWriteInputTokens = 0, o bloco estático está abaixo do mínimo.")
 
     testar_cache_emocao([
@@ -729,17 +839,28 @@ if __name__ == '__main__':
         "Minha dívida tá me sufocando. Ouvi falar em refinanciamento mas não sei se é pra mim."
     )
 
-    # ── Bloco 6: TTFT via streaming ───────────────────────────────────────────
-    print("\n\n### BLOCO 6: TTFT — converse_stream (tokens impressos em tempo real) ###")
+    # ── Bloco 6a: TTFT via streaming ───────────────────────────────────────────
+    print("\n\n### BLOCO 6a: TTFT — converse_stream (tokens impressos em tempo real) ###")
     print("    (TTFT = tempo até o 1º token; latência total = tempo até o último)")
 
-    testar_ttft_mensagens([
+    MENSAGENS_TTFT = [
         "Quero refinanciar minha casa mas tenho medo de errar alguma coisa e perder tudo.",
         "Já tentei refinanciar três vezes e sempre aparece algum problema. Tô desistindo.",
         "Li bastante sobre CET, IPCA+, TR. Quero saber qual indexador é melhor pro meu caso.",
         "Não entendi nada sobre a parcela. Como funciona isso?",
         "Minha dívida tá me sufocando. Ouvi falar em refinanciamento mas não sei se é pra mim.",
-    ])
+    ]
+
+    res_6a = testar_ttft_mensagens(MENSAGENS_TTFT)
+
+    # ── Bloco 6b: TTFT com cache ──────────────────────────────────────────────
+    print("\n\n### BLOCO 6b: TTFT — com cache (system[] + cachePoint) ###")
+    print("    (1ª mensagem: cache WRITE; seguintes: cache READ se dentro do TTL de 5 min)")
+
+    res_6b = testar_ttft_com_cache(MENSAGENS_TTFT)
+
+    # ── Comparativo 6a vs 6b ──────────────────────────────────────────────────
+    _tabela_comparativa_6a_6b(res_6a, res_6b)
 
     print(f"\n{'=' * 60}")
     print("  Testes concluídos.")
