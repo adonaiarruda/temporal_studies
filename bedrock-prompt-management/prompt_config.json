@@ -1,0 +1,12 @@
+{
+  "emotion_detection": {
+    "prompt_id": "NCYQIZOW0N",
+    "version": "1",
+    "versioned_arn": "arn:aws:bedrock:us-east-1:952652903454:prompt/NCYQIZOW0N:1"
+  },
+  "scenario_generation": {
+    "prompt_id": "A9MLB7HMF4",
+    "version": "1",
+    "versioned_arn": "arn:aws:bedrock:us-east-1:952652903454:prompt/A9MLB7HMF4:1"
+  }
+}
