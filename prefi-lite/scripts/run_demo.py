@@ -19,6 +19,8 @@ import asyncio
 import os
 import uuid
 
+import braintrust
+from braintrust.contrib.temporal import BraintrustPlugin
 from dotenv import load_dotenv
 from temporalio.client import Client
 
@@ -30,6 +32,8 @@ load_dotenv()
 TEMPORAL_HOST = os.environ.get("TEMPORAL_HOST", "localhost:7233")
 TASK_QUEUE = os.environ.get("TEMPORAL_TASK_QUEUE", "prefi-lite")
 BRAINTRUST_PROJECT = os.environ.get("BRAINTRUST_PROJECT", "prefi-lite")
+
+braintrust.init_logger(project=BRAINTRUST_PROJECT)
 
 # Mensagens que exercitam os 4 estados emocionais
 DEMO_MESSAGES = [
@@ -90,42 +94,43 @@ async def main() -> None:
     print(f"  Análises   : {len(DEMO_MESSAGES)}")
     print("=" * 65)
 
-    client = await Client.connect(TEMPORAL_HOST)
+    client = await Client.connect(TEMPORAL_HOST, plugins=[BraintrustPlugin()])
 
     first_analysis_id: str | None = None
     first_analysis_result: AnalysisResult | None = None
 
-    for expected_state, mensagem in DEMO_MESSAGES:
-        print(f"\n[esperado: {expected_state}]")
-        print(f"  Mensagem : {mensagem[:80]}{'...' if len(mensagem) > 80 else ''}")
+    with braintrust.start_span(name="prefi-lite-demo"):
+        for expected_state, mensagem in DEMO_MESSAGES:
+            print(f"\n[esperado: {expected_state}]")
+            print(f"  Mensagem : {mensagem[:80]}{'...' if len(mensagem) > 80 else ''}")
 
-        workflow_id, result = await run_analysis(client, mensagem)
+            workflow_id, result = await run_analysis(client, mensagem)
 
-        print(f"  workflow_id      : {workflow_id}")
-        print(f"  estado detectado : {result.estado_emocional} (confiança {result.confianca_emocao:.0%})")
-        print(f"  cenário          : {result.cenario[:200].strip()}...")
+            print(f"  workflow_id      : {workflow_id}")
+            print(f"  estado detectado : {result.estado_emocional} (confiança {result.confianca_emocao:.0%})")
+            print(f"  cenário          : {result.cenario[:200].strip()}...")
 
-        if first_analysis_id is None:
-            first_analysis_id = workflow_id
-            first_analysis_result = result
+            if first_analysis_id is None:
+                first_analysis_id = workflow_id
+                first_analysis_result = result
 
-    # Refinamento: simula usuário insatisfeito com a primeira análise
-    print("\n" + "-" * 65)
-    print("  REFINAMENTO — nota 2/5 na primeira análise")
-    print("-" * 65)
+        # Refinamento: simula usuário insatisfeito com a primeira análise
+        print("\n" + "-" * 65)
+        print("  REFINAMENTO — nota 2/5 na primeira análise")
+        print("-" * 65)
 
-    feedback = "Muito técnico, não entendi nada. Precisa ser mais simples."
-    refined = await run_refinement(
-        client,
-        analysis_id=first_analysis_id,
-        analysis=first_analysis_result,
-        nota=2,
-        feedback=feedback,
-    )
+        feedback = "Muito técnico, não entendi nada. Precisa ser mais simples."
+        refined = await run_refinement(
+            client,
+            analysis_id=first_analysis_id,
+            analysis=first_analysis_result,
+            nota=2,
+            feedback=feedback,
+        )
 
-    print(f"  analysis_id     : {refined.analysis_id}")
-    print(f"  feedback enviado: {feedback}")
-    print(f"  cenário refinado: {refined.cenario_refinado[:200].strip()}...")
+        print(f"  analysis_id     : {refined.analysis_id}")
+        print(f"  feedback enviado: {feedback}")
+        print(f"  cenário refinado: {refined.cenario_refinado[:200].strip()}...")
 
     print("\n" + "=" * 65)
     print("  Pronto. Abra para ver os traces:")
