@@ -1,13 +1,11 @@
 from pathlib import Path
 from temporalio import activity
-from langsmith import traceable
 from src.bedrock_client import invoke_model
 
 _PROMPT_PATH = Path(__file__).parent.parent.parent / "prompts" / "scenario_generation.txt"
 
 
 @activity.defn(name="generate_scenario_activity")
-@traceable(run_type="chain", name="generate-scenario")
 async def generate_scenario_activity(params: dict) -> str:
     mensagem: str = params["mensagem"]
     estado: str = params["estado"]
@@ -21,4 +19,4 @@ async def generate_scenario_activity(params: dict) -> str:
         .replace("{mensagem}", mensagem)
     )
 
-    return invoke_model(prompt)
+    return await invoke_model(prompt)

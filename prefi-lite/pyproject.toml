@@ -9,7 +9,7 @@ dependencies = [
     "uvicorn",
     "pydantic>=2.0",
     "python-dotenv",
-    "langsmith>=0.1",
+    "braintrust>=0.0.154",
 ]
 
 [project.optional-dependencies]
