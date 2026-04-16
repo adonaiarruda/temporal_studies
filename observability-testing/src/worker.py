@@ -16,6 +16,7 @@ import asyncio
 import logging
 import os
 
+from braintrust import init_logger
 from dotenv import load_dotenv
 from temporalio.client import Client
 from temporalio.worker import Worker
@@ -32,6 +33,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 TEMPORAL_HOST = os.environ.get("TEMPORAL_HOST", "localhost:7233")
 TASK_QUEUE = os.environ.get("TEMPORAL_TASK_QUEUE", "observability-demo")
 BRAINTRUST_PROJECT = os.environ.get("BRAINTRUST_PROJECT", "observability-demo")
+
+init_logger(project=BRAINTRUST_PROJECT)
 
 
 async def main() -> None:

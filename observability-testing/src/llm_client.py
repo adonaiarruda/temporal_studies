@@ -7,9 +7,9 @@ Por que essa abordagem:
 - max_retries=0 (implícito): o RetryPolicy do Temporal controla as retentativas.
 
 Observabilidade no Braintrust:
-- Spans de Workflow e Activity são registrados automaticamente pelo BraintrustPlugin (worker.py).
-- Sub-spans de LLM (tokens, custo) não são capturados automaticamente — boto3 não expõe
-  os dados no formato do proxy Braintrust. A latência no nível de Activity ainda é visível.
+- @traced(type="llm", notrace_io=True) cria um span LLM sem logar os args da função.
+- Tokens (input/output) são extraídos do response do Bedrock e logados manualmente.
+- O span aparece aninhado sob o Activity span criado pelo BraintrustPlugin.
 """
 import asyncio
 import json
@@ -17,13 +17,14 @@ import logging
 import os
 
 import boto3
+from braintrust import current_span, traced
 from dotenv import load_dotenv
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-MODEL = os.environ.get("LLM_MODEL", "us.anthropic.claude-3-5-haiku-20241022-v1:0")
+MODEL = os.environ.get("LLM_MODEL", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
 AWS_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
 
 _bedrock = boto3.client(
@@ -32,6 +33,7 @@ _bedrock = boto3.client(
 )
 
 
+@traced(type="llm", name="Bedrock Claude", notrace_io=True)
 def _invoke_sync(system: str, user: str, max_tokens: int) -> str:
     """Chamada síncrona ao Bedrock — executada em thread pool via asyncio.to_thread."""
     body = json.dumps({
@@ -47,7 +49,27 @@ def _invoke_sync(system: str, user: str, max_tokens: int) -> str:
         body=body,
     )
     result = json.loads(response["body"].read())
-    return result["content"][0]["text"]
+    text = result["content"][0]["text"]
+
+    usage = result.get("usage", {})
+    input_tokens = usage.get("input_tokens", 0)
+    output_tokens = usage.get("output_tokens", 0)
+
+    current_span().log(
+        input=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        output=text,
+        metadata={"model": MODEL},
+        metrics=dict(
+            prompt_tokens=input_tokens,
+            completion_tokens=output_tokens,
+            tokens=input_tokens + output_tokens,
+        ),
+    )
+
+    return text
 
 
 async def call_llm(system: str, user: str, max_tokens: int = 512) -> str:

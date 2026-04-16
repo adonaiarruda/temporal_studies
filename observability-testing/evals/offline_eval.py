@@ -25,9 +25,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from dotenv import load_dotenv
 load_dotenv()
 
+import json
+
 from braintrust import Eval
-from autoevals.llm import Factuality, ClosedQA
 from evals.task import classify_and_answer
+from src.llm_client import call_llm
 
 
 # ── Dataset ──────────────────────────────────────────────────────────────────
@@ -109,6 +111,51 @@ def intent_accuracy(output: dict, input: str, expected: str, metadata: dict = No
     return 1.0 if predicted == metadata["expected_intent"] else 0.0
 
 
+# ── LLM-as-a-judge scorers via Bedrock ───────────────────────────────────────
+
+async def factuality(input: str, output, expected: str = None, **kwargs) -> float:
+    """Judges if the answer is factually equivalent to the expected answer."""
+    if not expected:
+        return None
+    answer = output.get("answer", "") if isinstance(output, dict) else str(output)
+    prompt = (
+        f"Question: {input}\n"
+        f"Expected answer: {expected}\n"
+        f"Actual answer: {answer}\n\n"
+        "Is the actual answer factually correct and equivalent to the expected answer? "
+        "Respond with ONLY JSON: {\"score\": 0.0-1.0, \"reason\": \"...\"}"
+    )
+    raw = await call_llm(
+        system="You are an impartial evaluator. Rate answer correctness from 0.0 (wrong) to 1.0 (correct).",
+        user=prompt,
+        max_tokens=128,
+    )
+    try:
+        return float(json.loads(raw)["score"])
+    except Exception:
+        return None
+
+
+async def relevance(input: str, output, **kwargs) -> float:
+    """Judges if the answer is relevant and on-topic for the question."""
+    answer = output.get("answer", "") if isinstance(output, dict) else str(output)
+    prompt = (
+        f"Question: {input}\n"
+        f"Answer: {answer}\n\n"
+        "Is this answer relevant and on-topic for the question? "
+        "Respond with ONLY JSON: {\"score\": 0.0-1.0, \"reason\": \"...\"}"
+    )
+    raw = await call_llm(
+        system="You are an impartial evaluator. Rate answer relevance from 0.0 (irrelevant) to 1.0 (highly relevant).",
+        user=prompt,
+        max_tokens=128,
+    )
+    try:
+        return float(json.loads(raw)["score"])
+    except Exception:
+        return None
+
+
 # ── Task wrapper ──────────────────────────────────────────────────────────────
 
 async def task(question: str) -> dict:
@@ -120,18 +167,19 @@ async def task(question: str) -> dict:
 # Runs the full evaluation. Each invocation creates a new Experiment in
 # Braintrust so you can compare results across model versions or prompt changes.
 
-Eval(
-    "qa-pipeline-eval",
-    project_name=os.environ.get("BRAINTRUST_PROJECT", "observability-demo"),
-    data=lambda: DATASET,
-    task=task,
-    scores=[
-        Factuality,       # LLM-as-judge: does the answer match `expected`?
-        intent_accuracy,  # Exact match: was the intent classified correctly?
-        ClosedQA,         # LLM-as-judge: is the answer relevant to the question?
-    ],
-    metadata={
-        "model": os.environ.get("LLM_MODEL", "claude-3-5-haiku-20241022"),
-        "pipeline": "classify → answer",
-    },
-)
+if __name__ == "__main__":
+    Eval(
+        os.environ.get("BRAINTRUST_PROJECT", "observability-demo"),
+        experiment_name="qa-pipeline-eval",
+        data=DATASET,
+        task=task,
+        scores=[
+            factuality,       # LLM-as-judge via Bedrock: resposta é factualmente correta?
+            relevance,        # LLM-as-judge via Bedrock: resposta é relevante para a pergunta?
+            intent_accuracy,  # Exact match: intent classificado corretamente?
+        ],
+        metadata={
+            "model": os.environ.get("LLM_MODEL", "us.anthropic.claude-haiku-4-5-20251001-v1:0"),
+            "pipeline": "classify → answer",
+        },
+    )
