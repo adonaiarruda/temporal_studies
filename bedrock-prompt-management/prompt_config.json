@@ -1,12 +1,12 @@
 {
   "emotion_detection": {
     "prompt_id": "PH0N74K8LT",
-    "version": "3",
-    "versioned_arn": "arn:aws:bedrock:us-east-1:952652903454:prompt/PH0N74K8LT:3"
+    "version": "4",
+    "versioned_arn": "arn:aws:bedrock:us-east-1:952652903454:prompt/PH0N74K8LT:4"
   },
   "scenario_generation": {
     "prompt_id": "A9MLB7HMF4",
-    "version": "4",
-    "versioned_arn": "arn:aws:bedrock:us-east-1:952652903454:prompt/A9MLB7HMF4:4"
+    "version": "5",
+    "versioned_arn": "arn:aws:bedrock:us-east-1:952652903454:prompt/A9MLB7HMF4:5"
   }
 }
